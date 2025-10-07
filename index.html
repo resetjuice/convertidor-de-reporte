@@ -1,0 +1,329 @@
+import React, { useState } from 'react';
+import { Upload, Download, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
+
+export default function DesglosadorVentas() {
+  const [archivo, setArchivo] = useState(null);
+  const [procesando, setProcesando] = useState(false);
+  const [resultado, setResultado] = useState(null);
+  const [error, setError] = useState(null);
+
+  // Catálogo de paquetes con su contenido
+  const catalogoPaquetes = {
+    "Plan Detox Básico": {
+      "C-Master 480 ml": 1,
+      "Greenergy 480 ml": 1,
+      "Immune Boost 50 ml": 1,
+      "Pinebliss 480 ml": 1,
+      "Skinny Green 480 ml": 1,
+      "Unbeetable 480 ml": 1,
+      "Vitality Milk 480 ml": 1
+    },
+    "Plan Detox Verdes": {
+      "Greenergy 480 ml": 1,
+      "Immune Boost 50 ml": 1,
+      "Skinny Green 480 ml": 2,
+      "Spicy Limonata 480 ml": 1,
+      "Tropic Glow 480 ml": 1,
+      "Vitality Milk 480 ml": 1
+    },
+    "Plan Detox Endurance": {
+      "C-Master 480 ml": 1,
+      "Coco Dream 480 ml": 1,
+      "Greenergy 480 ml": 1,
+      "Pinebliss 480 ml": 1,
+      "Skinny Green 480 ml": 1,
+      "Spicy Limonata 480 ml": 1,
+      "Unbeetable 480 ml": 1,
+      "Vitality Milk 480 ml": 1
+    },
+    "Caja Un Día De Detox": {
+      "Carrot Rush 480 ml": 1,
+      "Greenergy 480 ml": 1,
+      "Pinebliss 480 ml": 1,
+      "Skinny Green 480 ml": 1,
+      "Tropic Glow 480 ml": 1,
+      "Unbeetable 480 ml": 1
+    },
+    "Pro Digestión": {
+      "Black Magic 480 ml": 7,
+      "Gingerlicious 50 ml": 7,
+      "Unbeetable 480 ml": 7
+    },
+    "Pro Energía": {
+      "Black Magic 480 ml": 1,
+      "C-Master 480 ml": 1,
+      "Carrot Rush 480 ml": 1,
+      "Coco Blast 480 ml": 1,
+      "Greenergy 480 ml": 3,
+      "Immune Boost 50 ml": 7,
+      "Pinebliss 480 ml": 1,
+      "Skinny Green 480 ml": 2,
+      "Spicy Limonata 480 ml": 1,
+      "Tropic Glow 480 ml": 2,
+      "Unbeetable 480 ml": 1
+    },
+    "Pro Inmunidad": {
+      "Carrot Rush 480 ml": 7,
+      "Greenergy 480 ml": 7,
+      "Immune Boost 50 ml": 7
+    },
+    "Paquete De Verdes": {
+      "Greenergy 480 ml": 3,
+      "Skinny Green 480 ml": 3,
+      "Tropic Glow 480 ml": 2
+    },
+    "Paquete De Leches Vegetales": {
+      "Chokonut 480 ml": 2,
+      "Coco Dream 480 ml": 3,
+      "Vitality Milk 480 ml": 3
+    },
+    "Paquete De Shots Variados": {
+      "Gingerlicious 50 ml": 4,
+      "Immune Boost 50 ml": 4
+    },
+    "Más Populares": {
+      "C-Master 480 ml": 1,
+      "Coco Blast 480 ml": 1,
+      "Greenergy 480 ml": 1,
+      "Immune Boost 50 ml": 1,
+      "Pinebliss 480 ml": 1,
+      "Skinny Green 480 ml": 1,
+      "Tropic Glow 480 ml": 1,
+      "Unbeetable 480 ml": 1,
+      "Vitality Milk 480 ml": 1
+    }
+  };
+
+  const procesarArchivo = async (file) => {
+    setProcesando(true);
+    setError(null);
+    setResultado(null);
+
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { cellDates: true });
+      const sheetName = workbook.SheetNames[0];
+      const rawData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+      // Procesar ventas
+      const ventasProcesadas = [];
+      rawData.forEach(row => {
+        const producto = row.Producto?.trim();
+        if (!producto) return;
+        
+        const variante = row["Variante de Producto"];
+        
+        for (let nombrePaquete of Object.keys(catalogoPaquetes)) {
+          if (producto.includes(nombrePaquete)) {
+            let dias = 1;
+            if (variante && variante !== "Default Title") {
+              const match = variante.match(/(\d+)/);
+              if (match) dias = parseInt(match[1]);
+            }
+            
+            ventasProcesadas.push({
+              fecha: new Date(row.Fecha).toISOString().split('T')[0],
+              paquete: nombrePaquete,
+              dias: dias,
+              nombreCompleto: nombrePaquete + (dias > 1 ? ` ${dias} Días` : ' 1 Día'),
+              cantidad: row["Artículos netos vendidos"] || 0
+            });
+            break;
+          }
+        }
+      });
+
+      // Agrupar por fecha y paquete
+      const grupos = {};
+      ventasProcesadas.forEach(v => {
+        const key = `${v.fecha}|${v.nombreCompleto}`;
+        if (!grupos[key]) {
+          grupos[key] = {
+            fecha: v.fecha,
+            paquete: v.paquete,
+            nombreCompleto: v.nombreCompleto,
+            dias: v.dias,
+            cantidadPaquetes: 0
+          };
+        }
+        grupos[key].cantidadPaquetes += v.cantidad;
+      });
+
+      const ventasAgrupadas = Object.values(grupos).sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+      // Crear tabla final
+      const todosJugos = new Set();
+      Object.values(catalogoPaquetes).forEach(paquete => {
+        Object.keys(paquete).forEach(jugo => todosJugos.add(jugo));
+      });
+      const jugosOrdenados = Array.from(todosJugos).sort();
+
+      const tablaFinal = ventasAgrupadas.map(venta => {
+        const fila = {
+          "Fecha": venta.fecha,
+          "Paquete": venta.nombreCompleto,
+          "Cantidad Paquetes": venta.cantidadPaquetes,
+          "Factor (Días)": venta.dias
+        };
+        
+        const contenidoBase = catalogoPaquetes[venta.paquete];
+        jugosOrdenados.forEach(jugo => {
+          const cantidadEnPaquete = contenidoBase[jugo] || 0;
+          fila[jugo] = cantidadEnPaquete * venta.dias * venta.cantidadPaquetes;
+        });
+        
+        return fila;
+      });
+
+      setResultado({
+        tabla: tablaFinal,
+        totalFilas: tablaFinal.length,
+        fechaInicio: tablaFinal[0]?.Fecha,
+        fechaFin: tablaFinal[tablaFinal.length - 1]?.Fecha
+      });
+
+    } catch (err) {
+      setError('Error al procesar el archivo: ' + err.message);
+    } finally {
+      setProcesando(false);
+    }
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setArchivo(file);
+      procesarArchivo(file);
+    }
+  };
+
+  const descargarExcel = () => {
+    if (!resultado) return;
+
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(resultado.tabla);
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Ventas Por Día");
+    
+    XLSX.writeFile(workbook, 'Reporte_Ventas_Diarias_Desglosado.xlsx');
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50 p-8">
+      <div className="max-w-6xl mx-auto">
+        <div className="bg-white rounded-2xl shadow-xl p-8">
+          {/* Header */}
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold text-gray-800 mb-2">
+              🥤 Desglose de Ventas por Día
+            </h1>
+            <p className="text-gray-600">
+              Convierte tu reporte de Shopify en un desglose detallado de jugos por paquete y día
+            </p>
+          </div>
+
+          {/* Upload Area */}
+          <div className="mb-8">
+            <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-green-300 rounded-xl cursor-pointer bg-green-50 hover:bg-green-100 transition">
+              <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                <Upload className="w-12 h-12 text-green-500 mb-3" />
+                <p className="mb-2 text-sm text-gray-700">
+                  <span className="font-semibold">Click para subir</span> o arrastra aquí
+                </p>
+                <p className="text-xs text-gray-500">
+                  Archivo Excel de ventas de Shopify
+                </p>
+              </div>
+              <input
+                type="file"
+                className="hidden"
+                accept=".xlsx,.xls"
+                onChange={handleFileChange}
+              />
+            </label>
+          </div>
+
+          {/* Processing */}
+          {procesando && (
+            <div className="text-center py-8">
+              <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
+              <p className="mt-4 text-gray-600">Procesando archivo...</p>
+            </div>
+          )}
+
+          {/* Error */}
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+              <p className="text-red-800">{error}</p>
+            </div>
+          )}
+
+          {/* Results */}
+          {resultado && (
+            <div className="space-y-6">
+              <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg p-6">
+                <h2 className="text-2xl font-bold text-gray-800 mb-4">
+                  ✅ Procesamiento Completado
+                </h2>
+                <div className="grid grid-cols-3 gap-4 mb-4">
+                  <div className="bg-white rounded-lg p-4 shadow">
+                    <p className="text-sm text-gray-600">Total de registros</p>
+                    <p className="text-2xl font-bold text-green-600">{resultado.totalFilas}</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-4 shadow">
+                    <p className="text-sm text-gray-600">Fecha inicio</p>
+                    <p className="text-lg font-semibold text-gray-800">{resultado.fechaInicio}</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-4 shadow">
+                    <p className="text-sm text-gray-600">Fecha fin</p>
+                    <p className="text-lg font-semibold text-gray-800">{resultado.fechaFin}</p>
+                  </div>
+                </div>
+                
+                <button
+                  onClick={descargarExcel}
+                  className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg transition flex items-center justify-center gap-2"
+                >
+                  <Download className="w-5 h-5" />
+                  Descargar Reporte Excel
+                </button>
+              </div>
+
+              {/* Preview */}
+              <div className="bg-white rounded-lg border border-gray-200 p-6">
+                <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5" />
+                  Vista Previa (Primeras 5 filas)
+                </h3>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        {resultado.tabla[0] && Object.keys(resultado.tabla[0]).map(key => (
+                          <th key={key} className="px-3 py-2 text-left text-xs font-medium text-gray-700 uppercase">
+                            {key}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {resultado.tabla.slice(0, 5).map((row, i) => (
+                        <tr key={i} className="hover:bg-gray-50">
+                          {Object.values(row).map((val, j) => (
+                            <td key={j} className="px-3 py-2 whitespace-nowrap text-gray-700">
+                              {val}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
